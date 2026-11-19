@@ -1,0 +1,56 @@
+name: GuoAppiOS27
+options:
+  bundleIdPrefix: com.guoapp
+  deploymentTarget:
+    iOS: "26.0"
+  groupSortPosition: top
+
+settings:
+  SWIFT_VERSION: "5.9"
+  CODE_SIGNING_ALLOWED: NO
+  CODE_SIGNING_REQUIRED: NO
+  ENABLE_BITCODE: NO
+
+targets:
+  GuoAppiOS27:
+    type: application
+    platform: iOS
+    sources:
+      - path: GuoAppiOS27
+    resources:
+      - path: GuoAppiOS27/Resources
+    dependencies:
+      - framework: DuanjuCore/DuanjuCore.xcframework
+        embed: false
+        link: true
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.guoapp.ios27
+      PRODUCT_NAME: GuoApp
+      SWIFT_OBJC_BRIDGING_HEADER: GuoAppiOS27/Core/BridgingHeader.h
+      SWIFT_OMIT_OBJECT_FILES_FOR_macCatalyst: NO
+      OTHER_LDFLAGS:
+        - $(inherited)
+        - -Wl,-u,_DuanjuRequest
+        - -Wl,-u,_DuanjuFree
+        - -Wl,-export_dynamic
+        - -lresolv
+      FRAMEWORK_SEARCH_PATHS:
+        - $(inherited)
+        - $(PROJECT_DIR)/DuanjuCore
+      "EXCLUDED_ARCHS[sdk=iphonesimulator*]": arm64
+    info:
+      path: GuoAppiOS27/Info.plist
+      properties:
+        CFBundleDisplayName: GuoApp
+        CFBundleName: GuoApp
+        CFBundleIdentifier: com.guoapp.ios27
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UIRequiredDeviceCapabilities:
+          - arm64
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        UIApplicationSupportsIndirectInputEvents: true

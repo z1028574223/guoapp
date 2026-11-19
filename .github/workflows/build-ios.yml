@@ -1,0 +1,118 @@
+name: Build iOS 27 Liquid Glass IPA
+
+# 打包链路对齐 jianliapp（已验证跑通）：
+#   macos runner + xcodegen + xcodebuild build(未签名) + Payload zip
+# 影视 App 比 jianliapp 多一步：先把 Go 核心编译成 libDuanjuCore.a / xcframework。
+# 只在手动触发时构建，避免 macOS runner 计费额度被自动 push 烧光。
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout SwiftUI project
+        uses: actions/checkout@v4
+        with:
+          path: app
+
+      - name: Checkout guoapp (Go core source)
+        uses: actions/checkout@v4
+        with:
+          repository: Xanerix/guoapp
+          ref: main
+          path: guoapp
+
+      - name: Select latest Xcode (iOS 26 SDK required for glassEffect)
+        run: |
+          set -e
+          echo "=== installed Xcode ==="
+          ls -d /Applications/Xcode*.app 2>/dev/null || true
+          XCODE=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE" ]; then
+            echo "::error::No Xcode.app found on runner"
+            exit 1
+          fi
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          echo "=== selected ==="
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          # go.mod 声明 1.26.10；GOTOOLCHAIN=auto 时 go 会自行对齐小版本
+          go-version: '1.26.10'
+          cache-dependency-path: guoapp/native/go.sum
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Build Go core static library (xcframework)
+        working-directory: guoapp
+        run: |
+          set -e
+          export GOTOOLCHAIN=auto
+          export GOPROXY=https://goproxy.cn,direct
+          export GOSUMDB=off
+          python3 scripts/build_ios.py --core-only
+          echo "=== core framework ==="
+          ls -la ios/DuanjuCore/DuanjuCore.xcframework
+
+      - name: Copy core framework into app project
+        run: |
+          set -e
+          mkdir -p app/DuanjuCore
+          cp -R guoapp/ios/DuanjuCore/DuanjuCore.xcframework app/DuanjuCore/
+          ls -la app/DuanjuCore/DuanjuCore.xcframework
+
+      - name: Generate Xcode project
+        working-directory: app
+        run: xcodegen generate
+
+      - name: Build unsigned (xcodebuild build, same as jianliapp)
+        working-directory: app
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project GuoAppiOS27.xcodeproj \
+            -scheme GuoAppiOS27 \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee build.log
+
+      - name: Package IPA
+        working-directory: app
+        run: |
+          set -e
+          APP=$(find build/Build/Products -name "GuoApp.app" -type d | head -1)
+          if [ -z "$APP" ]; then
+            echo "::error::GuoApp.app not found; see build.log artifact"
+            exit 1
+          fi
+          echo "APP=$APP"
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          /usr/bin/ditto -c -k --keepParent Payload GuoApp-iOS27-LiquidGlass.ipa
+          ls -lh GuoApp-iOS27-LiquidGlass.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: GuoApp-iOS27-LiquidGlass
+          path: app/GuoApp-iOS27-LiquidGlass.ipa
+          if-no-files-found: error
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: app/build.log
+          if-no-files-found: ignore
