@@ -22,6 +22,28 @@ struct Drama: Identifiable, Codable, Hashable {
         case vip, heat, views, tags, releaseStatus, score
     }
 
+    /// Memberwise initializer. Swift stops synthesizing this once a custom
+    /// init(from:) exists, so declare it explicitly for demo/content creation.
+    init(id: String, source: String, sourceID: String, title: String,
+         description: String, cover: String, episodes: Int, category: String,
+         vip: Bool? = nil, heat: String? = nil, views: String? = nil,
+         tags: [String] = [], releaseStatus: String? = nil, score: String? = nil) {
+        self.id = id
+        self.source = source
+        self.sourceID = sourceID
+        self.title = title
+        self.description = description
+        self.cover = cover
+        self.episodes = episodes
+        self.category = category
+        self.vip = vip
+        self.heat = heat
+        self.views = views
+        self.tags = tags
+        self.releaseStatus = releaseStatus
+        self.score = score
+    }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? ""
@@ -60,6 +82,21 @@ struct Chapter: Identifiable, Codable, Hashable {
         case currentEpisode
     }
 
+    /// Memberwise initializer (Swift suppresses the synthesized one once
+    /// init(from:) is defined).
+    init(id: String, source: String, title: String, videoURL: String,
+         episode: Int, pageURL: String? = nil, referer: String? = nil,
+         vertical: Bool? = nil) {
+        self.id = id
+        self.source = source
+        self.title = title
+        self.videoURL = videoURL
+        self.episode = episode
+        self.pageURL = pageURL
+        self.referer = referer
+        self.vertical = vertical
+    }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? ""
@@ -78,6 +115,20 @@ struct Chapter: Identifiable, Codable, Hashable {
         } else {
             episode = 0
         }
+    }
+
+    /// Custom encode(to:) because the JSON key is `currentEpisode` while the
+    /// property is `episode`; synthesis alone cannot pair them.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(source, forKey: .source)
+        try c.encode(title, forKey: .title)
+        try c.encode(videoURL, forKey: .videoURL)
+        try c.encode(pageURL, forKey: .pageURL)
+        try c.encode(referer, forKey: .referer)
+        try c.encode(vertical, forKey: .vertical)
+        try c.encode(episode, forKey: .currentEpisode)
     }
 }
 

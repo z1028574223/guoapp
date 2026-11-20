@@ -121,7 +121,7 @@ struct DetailView: View {
                     store.toggleFollow(current)
                 } label: {
                     Image(systemName: store.isFollowed(current.key) ? "checkmark" : "plus")
-                        .frame(width: 50, minHeight: 50)
+                        .frame(width: 50, height: 50)
                 }
                 .adaptiveGlass(level: level, in: AnyShape(Capsule()), interactive: true)
             }

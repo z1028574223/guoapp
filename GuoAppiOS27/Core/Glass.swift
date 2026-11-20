@@ -30,11 +30,16 @@ struct AdaptiveGlass: ViewModifier {
     let shape: AnyShape
     let interactive: Bool
 
+    // Keep control flow out of the @ViewBuilder body: an `if` branch there must
+    // yield a View, but this mutation yields Void.
+    private var material: Glass {
+        let base = Glass.regular.tint(GlassTokens.tint(level: level))
+        return interactive ? base.interactive() : base
+    }
+
     func body(content: Content) -> some View {
         // Deployment target is iOS 26, so the native glass material is always
         // available — no runtime availability guard needed.
-        var material = Glass.regular.tint(GlassTokens.tint(level: level))
-        if interactive { material = material.interactive() }
         content.glassEffect(material, in: shape)
     }
 }

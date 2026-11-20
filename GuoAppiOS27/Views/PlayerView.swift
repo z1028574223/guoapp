@@ -192,8 +192,11 @@ struct PlayerView: View {
                     return
                 }
                 let headers = plan["headers"] as? [String: String] ?? [:]
+                // The AVURLAssetHTTPHeaderFieldsKey symbol is no longer exposed
+                // to Swift in recent SDKs; the string key is the documented
+                // equivalent and works the same at runtime.
                 let options: [String: Any] = headers.isEmpty ? [:] :
-                    [AVURLAssetHTTPHeaderFieldsKey: headers]
+                    ["AVURLAssetHTTPHeaderFieldsKey": headers]
                 let asset = AVURLAsset(url: url, options: options)
                 let item = AVPlayerItem(asset: asset)
                 let newPlayer = AVPlayer(playerItem: item)
