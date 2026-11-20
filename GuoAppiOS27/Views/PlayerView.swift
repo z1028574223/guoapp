@@ -296,7 +296,7 @@ struct CastSheet: View {
             if devices.isEmpty {
                 Text(status).font(.caption).foregroundStyle(.secondary)
             } else {
-                ForEach(devices, id: \.self) { d in
+                ForEach(Array(devices.enumerated()), id: \.offset) { _, d in
                     HStack {
                         Image(systemName: "tv").foregroundStyle(GlassTokens.accent)
                         Text(d["name"] as? String ?? "未知设备").font(.subheadline)

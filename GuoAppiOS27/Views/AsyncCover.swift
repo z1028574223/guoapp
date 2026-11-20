@@ -42,7 +42,11 @@ struct AsyncCover: View {
 }
 
 /// Decodes a [String: Any] drama dict from the Go core into a display model.
-struct RemoteDrama: Identifiable {
+struct RemoteDrama: Identifiable, Hashable {
+    // Hash by id only; the `raw` dict is [String: Any] and cannot participate
+    // in synthesized Hashable/Equatable conformance.
+    static func == (lhs: RemoteDrama, rhs: RemoteDrama) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
     let id: String
     let source: String
     let sourceID: String
