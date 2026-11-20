@@ -10,6 +10,21 @@ final class Repository {
     static let shared = Repository()
     private let core = DuanjuCore.shared
 
+    /// The Go core requires a strictly increasing playback sequence for every
+    /// resolve/fallback/cancelPlayback call. Starting from a timestamp mirrors
+    /// guoapp's Dart layer (`_playbackSequence = DateTime.now().microsecondsSinceEpoch`).
+    /// Without this, nativeBeginPlayback rejects the request with context.Canceled,
+    /// which makes ALL playback fail. Access is serialized via the core's queue.
+    private var playbackSequence: Int64 = Int64(Date().timeIntervalSince1970 * 1_000_000)
+    private let sequenceLock = NSLock()
+
+    private func nextPlaybackSequence() -> Int64 {
+        sequenceLock.lock()
+        defer { sequenceLock.unlock() }
+        playbackSequence += 1
+        return playbackSequence
+    }
+
     private init() {}
 
     // MARK: - Lifecycle
@@ -93,7 +108,15 @@ final class Repository {
                  force: Bool = true) async throws -> [String: Any] {
         try await core.request("resolve", [
             "drama": drama.dictionary, "chapter": chapter.dictionary,
-            "index": index, "quality": quality, "force": force
+            "index": index, "quality": quality, "force": force,
+            "sequence": nextPlaybackSequence()
+        ])
+    }
+
+    /// Switch to the next playback route for an existing session.
+    func fallback(session: String) async throws -> [String: Any] {
+        try await core.request("fallback", [
+            "session": session, "sequence": nextPlaybackSequence()
         ])
     }
 
@@ -334,8 +357,8 @@ final class Repository {
     }
 
     @discardableResult
-    func cancelPlayback(sequence: Int64) async throws -> Bool {
-        let data = try await core.request("cancelPlayback", ["sequence": sequence])
+    func cancelPlayback() async throws -> Bool {
+        let data = try await core.request("cancelPlayback", ["sequence": nextPlaybackSequence()])
         return data["true"] as? Bool ?? true
     }
 

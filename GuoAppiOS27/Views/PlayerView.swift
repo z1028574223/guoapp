@@ -42,11 +42,18 @@ struct PlayerView: View {
             } else {
                 AsyncCover(cover: drama.cover, level: level)
                     .blur(radius: 2).opacity(0.5).ignoresSafeArea()
-                VStack(spacing: 12) {
-                    ProgressView().tint(.white)
+                VStack(spacing: 14) {
+                    if resolveError == nil { ProgressView().tint(.white) }
                     if let resolveError {
-                        Text(resolveError).font(.caption).foregroundStyle(.white.opacity(0.7))
-                            .multilineTextAlignment(.center).padding(.horizontal, 40)
+                        Image(systemName: "exclamationmark.triangle").font(.title2).foregroundStyle(.orange)
+                        Text(resolveError).font(.subheadline).foregroundStyle(.white.opacity(0.85))
+                            .multilineTextAlignment(.center).padding(.horizontal, 32)
+                        Button {
+                            loadEpisode()
+                        } label: {
+                            Label("重试", systemImage: "arrow.clockwise").font(.subheadline.weight(.semibold))
+                        }
+                        .buttonStyle(.glass).padding(.top, 4)
                     }
                 }
             }
@@ -212,10 +219,10 @@ struct PlayerView: View {
             }
             do {
                 let plan = try await Repository.shared.resolve(drama: drama, chapter: chapter,
-                                                               index: episode - 1)
+                                                               index: episode)
                 guard let urlString = plan["url"] as? String,
                       let url = URL(string: urlString) else {
-                    resolveError = "播放地址无效（演示内容不含真实视频）"
+                    resolveError = "该站源未返回有效播放地址，可切换集数或到「站源」页换其他源"
                     return
                 }
                 let headers = plan["headers"] as? [String: String] ?? [:]
