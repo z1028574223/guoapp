@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct GuoAppiOS27App: App {
     @StateObject private var store = LocalStore.shared
+    @StateObject private var sources = SourceState.shared
     @State private var ready = false
     @State private var bootError: String?
 
@@ -12,6 +13,7 @@ struct GuoAppiOS27App: App {
                 if ready {
                     RootTabView()
                         .environmentObject(store)
+                        .environmentObject(sources)
                 } else {
                     BootView(error: $bootError)
                 }
@@ -19,10 +21,11 @@ struct GuoAppiOS27App: App {
             .task {
                 do {
                     try await Repository.shared.initialize()
+                    let list = try await Repository.shared.bootstrapSources()
+                    sources.load(list)
                     ready = true
                 } catch {
-                    // Still allow the UI to open with demo content if the core
-                    // fails to initialize (e.g. no station module bundled).
+                    // Still allow the UI to open if the core fails to initialize.
                     bootError = error.localizedDescription
                     ready = true
                 }

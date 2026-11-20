@@ -50,14 +50,23 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
-      - name: Build Go core static library (xcframework)
+      - name: Build Go core static library (xcframework) with bundled sources
         working-directory: guoapp
         run: |
           set -e
           export GOTOOLCHAIN=auto
           export GOPROXY=https://goproxy.cn,direct
           export GOSUMDB=off
-          python3 scripts/build_ios.py --core-only
+          # Bundle 5 real, non-adult site modules (hongguo etc.) into the Go
+          # core via go:embed so the app has working sources out of the box.
+          python3 scripts/build_ios.py --core-only \
+            --bundle "$GITHUB_WORKSPACE/app/bundled_modules/hongguo" \
+            --bundle "$GITHUB_WORKSPACE/app/bundled_modules/hanxiaoquan" \
+            --bundle "$GITHUB_WORKSPACE/app/bundled_modules/ikanbot" \
+            --bundle "$GITHUB_WORKSPACE/app/bundled_modules/sorani" \
+            --bundle "$GITHUB_WORKSPACE/app/bundled_modules/guipian"
+          echo "=== bundled modules ==="
+          ls -la native/core/bundled/
           echo "=== core framework ==="
           ls -la ios/DuanjuCore/DuanjuCore.xcframework
 

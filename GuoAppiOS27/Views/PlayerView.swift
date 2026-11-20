@@ -16,6 +16,9 @@ struct PlayerView: View {
     @State private var resolveError: String?
     @State private var speed: Double
     @State private var hideTimer: Timer?
+    @State private var showDanmaku = true
+    @State private var danmakuTexts: [String] = []
+    @State private var showCast = false
 
     private var level: Double { store.settings.glassLevel }
     private var chapter: Chapter? { chapters.first { $0.episode == episode } }
@@ -37,8 +40,8 @@ struct PlayerView: View {
                     .ignoresSafeArea()
                     .onTapGesture { toggleControls() }
             } else {
-                Image(drama.cover).resizable().scaledToFill().ignoresSafeArea()
-                    .blur(radius: 2).opacity(0.5)
+                AsyncCover(cover: drama.cover, level: level)
+                    .blur(radius: 2).opacity(0.5).ignoresSafeArea()
                 VStack(spacing: 12) {
                     ProgressView().tint(.white)
                     if let resolveError {
@@ -46,6 +49,12 @@ struct PlayerView: View {
                             .multilineTextAlignment(.center).padding(.horizontal, 40)
                     }
                 }
+            }
+
+            // Danmaku overlay
+            if showDanmaku && player != nil {
+                DanmakuOverlay(texts: danmakuTexts)
+                    .allowsHitTesting(false)
             }
 
             // Top bar
@@ -113,6 +122,12 @@ struct PlayerView: View {
                             ControlChip(icon: "list.bullet", label: "选集") {
                                 showEpisodes = true
                             }
+                            ControlChip(icon: showDanmaku ? "text.bubble.fill" : "text.bubble", label: "弹幕") {
+                                showDanmaku.toggle()
+                            }
+                            ControlChip(icon: "airplayvideo", label: "投屏") {
+                                showCast = true
+                            }
                         }
                     }
                     .padding(16)
@@ -129,12 +144,24 @@ struct PlayerView: View {
             EpisodeSheet(drama: drama, chapters: chapters, current: $episode, level: level)
                 .presentationDetents([.medium, .large])
         }
+        .sheet(isPresented: $showCast) {
+            CastSheet(level: level)
+                .presentationDetents([.medium])
+        }
         .onChange(of: speed) { _, new in
             player?.rate = isPlaying ? Float(new) : 0
             store.settings.playbackSpeed = new
         }
-        .onChange(of: episode) { _, _ in Task { await loadEpisode() } }
-        .task { await loadEpisode() }
+        .onChange(of: episode) { _, _ in
+            Task {
+                await loadEpisode()
+                await loadDanmaku()
+            }
+        }
+        .task {
+            await loadEpisode()
+            await loadDanmaku()
+        }
         .onDisappear {
             player?.pause()
             player = nil
@@ -209,6 +236,80 @@ struct PlayerView: View {
             } catch {
                 resolveError = error.localizedDescription
             }
+        }
+    }
+
+    private func loadDanmaku() {
+        guard let chapter, store.settings.danmakuEnabled else {
+            danmakuTexts = []
+            return
+        }
+        Task {
+            do {
+                let items = try await Repository.shared.danmaku(
+                    drama: drama, chapter: chapter,
+                    startMs: 0, durationMs: 120_000,
+                    session: "ios27", sequence: Int64(episode))
+                let texts = items.compactMap { $0["text"] as? String ?? $0["content"] as? String }
+                await MainActor.run { danmakuTexts = Array(texts.prefix(40)) }
+            } catch {
+                await MainActor.run { danmakuTexts = [] }
+            }
+        }
+    }
+}
+
+struct DanmakuOverlay: View {
+    let texts: [String]
+    @State private var animate = false
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                ForEach(Array(texts.enumerated()), id: \.offset) { idx, text in
+                    let lane = idx % 6
+                    Text(text)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .shadow(radius: 2)
+                        .position(x: animate ? -120 : geo.size.width + 120,
+                                  y: 70 + CGFloat(lane) * 42)
+                        .animation(.linear(duration: 8 + Double(lane % 3) * 2)
+                            .repeatForever(autoreverses: false).delay(Double(idx) * 0.5),
+                                   value: animate)
+                }
+            }
+            .onAppear { animate = true }
+        }
+        .clipped()
+    }
+}
+
+struct CastSheet: View {
+    let level: Double
+    @State private var devices: [[String: Any]] = []
+    @State private var status = "正在搜索 nearby 设备…"
+    var body: some View {
+        VStack(spacing: 14) {
+            Text("投屏").font(.title3.bold())
+            Image(systemName: "airplayvideo").font(.system(size: 44)).foregroundStyle(GlassTokens.accent)
+            if devices.isEmpty {
+                Text(status).font(.caption).foregroundStyle(.secondary)
+            } else {
+                ForEach(devices, id: \.self) { d in
+                    HStack {
+                        Image(systemName: "tv").foregroundStyle(GlassTokens.accent)
+                        Text(d["name"] as? String ?? "未知设备").font(.subheadline)
+                    }
+                }
+            }
+            Text("iOS 版上游未提供投屏，此功能为预留。")
+                .font(.caption2).foregroundStyle(.tertiary)
+        }.padding().task {
+            do {
+                devices = try await Repository.shared.castDevices()
+                if devices.isEmpty { status = "未发现可用设备" }
+            } catch { status = "搜索失败：\(error.localizedDescription)" }
         }
     }
 }

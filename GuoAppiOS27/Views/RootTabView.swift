@@ -2,23 +2,24 @@ import SwiftUI
 
 struct RootTabView: View {
     @EnvironmentObject var store: LocalStore
+    @EnvironmentObject var sources: SourceState
     @State private var selection = 0
-    @State private var path = NavigationPath()
 
     var body: some View {
         TabView(selection: $selection) {
             Tab("发现", systemImage: "compass.canvas.fill", value: 0) {
-                NavigationStack(path: $path) { DiscoverView() }
+                NavigationStack { DiscoverView() }
             }
             Tab("追剧", systemImage: "bookmark.fill", value: 1) {
                 NavigationStack { FollowView() }
             }
-            Tab("我的", systemImage: "person.fill", value: 2) {
+            Tab("历史", systemImage: "clock.arrow.circlepath", value: 2) {
+                NavigationStack { HistoryView() }
+            }
+            Tab("我的", systemImage: "person.fill", value: 3) {
                 NavigationStack { MineView() }
             }
         }
-        // iOS 27: collapse the glass tab bar as content scrolls, keeping more
-        // of the drama artwork visible while it stays reachable.
         .tabBarMinimizeBehavior(.onScrollDown)
         .tint(GlassTokens.accent)
     }

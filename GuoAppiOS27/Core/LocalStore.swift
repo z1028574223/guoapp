@@ -27,24 +27,26 @@ struct Settings: Codable {
     var danmakuEnabled: Bool = true
 }
 
-/// Local, per-device user data. Go core has no concept of users, follow state or
-/// history — this store reconstructs the subset needed by the UI (mirrors guoapp's
-/// LocalStore, simplified to a single JSON file for this prototype).
+struct Profile: Codable, Identifiable {
+    var id: String
+    var name: String
+    var admin: Bool = false
+    var sources: [String] = []
+    var download: Bool = true
+}
+
+/// Local, per-device data. The Go core has no concept of users, follow state,
+/// history or settings — this store reconstructs them, isolated per user.
 final class LocalStore: ObservableObject {
     static let shared = LocalStore()
 
-    @Published var favorites: [String: Drama] = [:] {
-        didSet { save() }
-    }
-    @Published var followStates: [String: FollowState] = [:] {
-        didSet { save() }
-    }
-    @Published var history: [WatchEntry] = [] {
-        didSet { save() }
-    }
-    @Published var settings = Settings() {
-        didSet { save() }
-    }
+    @Published private(set) var profiles: [Profile] = [Profile(id: "default", name: "管理员", admin: true)]
+    @Published private(set) var activeUserID = "default"
+    @Published var favorites: [String: Drama] = [:] { didSet { save() } }
+    @Published var followStates: [String: FollowState] = [:] { didSet { save() } }
+    @Published var history: [WatchEntry] = [] { didSet { save() } }
+    @Published var recentSearches: [String] = [] { didSet { save() } }
+    @Published var settings = Settings() { didSet { save() } }
 
     private let file: URL
     private var isLoading = true
@@ -52,38 +54,106 @@ final class LocalStore: ObservableObject {
     private init() {
         let support = try! FileManager.default.url(
             for: .applicationSupportDirectory, in: .userDomainMask,
-            appropriateFor: nil, create: true
-        )
+            appropriateFor: nil, create: true)
         file = support.appendingPathComponent("guoapp/state.json")
         load()
         isLoading = false
     }
 
+    private struct UserData: Codable {
+        var favorites: [String: Drama] = [:]
+        var followStates: [String: FollowState] = [:]
+        var history: [WatchEntry] = []
+        var recentSearches: [String] = []
+        var settings = Settings()
+    }
+
     private struct Snapshot: Codable {
-        var favorites: [String: Drama]
-        var followStates: [String: FollowState]
-        var history: [WatchEntry]
-        var settings: Settings
+        var profiles: [Profile] = [Profile(id: "default", name: "管理员", admin: true)]
+        var activeUserID: String = "default"
+        var users: [String: UserData] = [:]
     }
 
     private func load() {
         guard let data = try? Data(contentsOf: file),
               let snap = try? JSONDecoder().decode(Snapshot.self, from: data) else { return }
-        favorites = snap.favorites
-        followStates = snap.followStates
-        history = snap.history
-        settings = snap.settings
+        profiles = snap.profiles
+        activeUserID = snap.activeUserID
+        applyUserData(snap.users[activeUserID] ?? UserData())
+    }
+
+    private func applyUserData(_ data: UserData) {
+        favorites = data.favorites
+        followStates = data.followStates
+        history = data.history
+        recentSearches = data.recentSearches
+        settings = data.settings
+    }
+
+    private func currentUserData() -> UserData {
+        UserData(favorites: favorites, followStates: followStates, history: history,
+                 recentSearches: recentSearches, settings: settings)
     }
 
     private func save() {
         guard !isLoading else { return }
-        let snap = Snapshot(favorites: favorites, followStates: followStates,
-                            history: history, settings: settings)
+        var snap = Snapshot()
+        if let data = try? Data(contentsOf: file),
+           let existing = try? JSONDecoder().decode(Snapshot.self, from: data) {
+            snap = existing
+        }
+        snap.profiles = profiles
+        snap.activeUserID = activeUserID
+        snap.users[activeUserID] = currentUserData()
         guard let data = try? JSONEncoder().encode(snap) else { return }
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(),
                                                   withIntermediateDirectories: true)
         try? data.write(to: file, options: .atomic)
     }
+
+    // MARK: - User management
+
+    func switchUser(_ id: String) {
+        guard profiles.contains(where: { $0.id == id }), id != activeUserID else { return }
+        save()
+        isLoading = true
+        activeUserID = id
+        if let data = try? Data(contentsOf: file),
+           let snap = try? JSONDecoder().decode(Snapshot.self, from: data) {
+            applyUserData(snap.users[id] ?? UserData())
+        } else {
+            applyUserData(UserData())
+        }
+        isLoading = false
+    }
+
+    func addUser(name: String) {
+        let suffix = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8))
+        profiles.append(Profile(id: "u_" + suffix, name: name))
+        save()
+    }
+
+    func deleteUser(_ id: String) {
+        guard id != "default", id != activeUserID else { return }
+        profiles.removeAll { $0.id == id }
+        save()
+    }
+
+    var currentProfile: Profile {
+        profiles.first { $0.id == activeUserID } ?? Profile(id: "default", name: "管理员", admin: true)
+    }
+
+    // MARK: - Search history
+
+    func addRecentSearch(_ query: String) {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return }
+        recentSearches.removeAll { $0.caseInsensitiveCompare(q) == .orderedSame }
+        recentSearches.insert(q, at: 0)
+        if recentSearches.count > 20 { recentSearches = Array(recentSearches.prefix(20)) }
+    }
+
+    // MARK: - Follow / history
 
     func isFollowed(_ key: String) -> Bool { followStates[key] != nil }
 
@@ -111,10 +181,7 @@ final class LocalStore: ObservableObject {
         }
     }
 
-    var followedDramas: [Drama] {
-        followStates.compactMap { favorites[$0.key] }
-    }
-
+    var followedDramas: [Drama] { followStates.compactMap { favorites[$0.key] } }
     var updatedDramas: [Drama] {
         followedDramas.filter { (followStates[$0.key]?.newEpisodes ?? 0) > 0 }
     }

@@ -8,6 +8,8 @@ struct DetailView: View {
     @State private var chapters: [Chapter] = []
     @State private var group = 0
     @State private var showEpisodes = false
+    @State private var downloadStatus: String?
+    @State private var showDownload = false
 
     private var current: Drama { resolved ?? drama }
     private var level: Double { store.settings.glassLevel }
@@ -18,7 +20,7 @@ struct DetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 ZStack(alignment: .top) {
-                    Image(current.cover).resizable().scaledToFill()
+                    AsyncCover(cover: current.cover, level: level)
                         .frame(height: 300).clipped()
                         .overlay(LinearGradient(colors: [.clear, Color(.systemBackground)],
                                                 startPoint: .top, endPoint: .bottom))
@@ -34,7 +36,7 @@ struct DetailView: View {
 
                 VStack(alignment: .leading, spacing: 14) {
                     HStack(alignment: .top, spacing: 14) {
-                        Image(current.cover).resizable().scaledToFill()
+                        AsyncCover(cover: current.cover, level: level)
                             .frame(width: 112, height: 158).clipped()
                             .clipShape(RoundedRectangle(cornerRadius: 16))
                         VStack(alignment: .leading, spacing: 6) {
@@ -117,6 +119,11 @@ struct DetailView: View {
                                                startPoint: .topLeading, endPoint: .bottomTrailing))
                     .clipShape(Capsule())
                 }
+                Button { showDownload = true } label: {
+                    Image(systemName: "square.and.arrow.down")
+                        .frame(width: 50, height: 50)
+                }
+                .adaptiveGlass(level: level, in: AnyShape(Capsule()), interactive: true)
                 Button {
                     store.toggleFollow(current)
                 } label: {
@@ -127,6 +134,10 @@ struct DetailView: View {
             }
             .padding(.horizontal).padding(.vertical, 8)
             .background(.bar)
+        }
+        .sheet(isPresented: $showDownload) {
+            DownloadPicker(chapters: chapters, drama: current, status: $downloadStatus)
+                .presentationDetents([.medium, .large])
         }
         .task {
             do {

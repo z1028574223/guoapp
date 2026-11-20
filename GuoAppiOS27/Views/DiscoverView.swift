@@ -2,54 +2,57 @@ import SwiftUI
 
 struct DiscoverView: View {
     @EnvironmentObject var store: LocalStore
-    @State private var categories = ["推荐", "全部", "热播榜", "都市", "甜宠", "悬疑", "古装", "逆袭"]
-    @State private var selected = "推荐"
-    @State private var source = "红果短剧"
-    @State private var items: [Drama] = DemoContent.catalog
-    @State private var showDemoBanner = true
-    @State private var loading = false
-    @State private var route: Drama?
+    @EnvironmentObject var sources: SourceState
 
-    var level: Double { store.settings.glassLevel }
+    @State private var categories: [String] = []
+    @State private var selected = ""
+    @State private var items: [RemoteDrama] = []
+    @State private var loading = false
+    @State private var route: RemoteDrama?
+    @State private var warning: String?
+    @State private var showSearch = false
+
+    private var sourceID: String { sources.activeID }
+    private var level: Double { store.settings.glassLevel }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                // Brand + source switcher floating on glass
+                // Brand + source switcher + search
                 HStack(spacing: 10) {
                     Text("小果影视").font(.title2.bold())
                     Menu {
-                        ForEach(DemoContent.sources, id: \.self) { s in
-                            Button { source = s; Task { await load() } } label: {
-                                Label(s, systemImage: s == source ? "checkmark" : "")
+                        if sources.sources.isEmpty {
+                            Text("暂无可用站源").font(.caption)
+                        } else {
+                            ForEach(sources.sources) { s in
+                                Button {
+                                    sources.select(s.id)
+                                    Task { await reloadCategories() }
+                                } label: {
+                                    Label(s.name, systemImage: s.id == sourceID ? "checkmark" : "")
+                                }
                             }
                         }
                     } label: {
                         HStack(spacing: 4) {
-                            Text(source).font(.caption.weight(.semibold))
+                            Text(sources.name(of: sourceID)).font(.caption.weight(.semibold))
                             Image(systemName: "chevron.down").font(.caption2)
                         }
                         .padding(.horizontal, 12).padding(.vertical, 7)
                         .adaptiveGlass(level: level, in: AnyShape(Capsule()), interactive: true)
                     }
                     Spacer()
-                    Button { } label: {
+                    Button { showSearch = true } label: {
                         Image(systemName: "magnifyingglass").font(.body.weight(.semibold))
-                    }
-                    .buttonStyle(.glass)
-                    .frame(width: 40, height: 40)
+                    }.buttonStyle(.glass).frame(width: 40, height: 40)
                 }
                 .padding(.horizontal)
 
-                if showDemoBanner {
+                if let warning, !warning.isEmpty {
                     HStack(spacing: 8) {
-                        Image(systemName: "info.circle.fill").foregroundStyle(GlassTokens.accent)
-                        Text("当前为演示内容（未安装真实站源模块）")
-                            .font(.caption)
-                        Spacer()
-                        Button { showDemoBanner = false } label: {
-                            Image(systemName: "xmark").font(.caption2)
-                        }
+                        Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.orange)
+                        Text(warning).font(.caption).lineLimit(2)
                     }
                     .padding(.horizontal, 14).padding(.vertical, 10)
                     .adaptiveGlass(level: level, in: AnyShape(RoundedRectangle(cornerRadius: 14)))
@@ -57,126 +60,125 @@ struct DiscoverView: View {
                 }
 
                 // Category pills
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 9) {
-                        ForEach(categories, id: \.self) { cat in
-                            Button {
-                                selected = cat
-                                Task { await load() }
-                            } label: {
-                                Text(cat).font(.subheadline.weight(.semibold))
-                                    .padding(.horizontal, 17).padding(.vertical, 8)
-                            }
-                            .adaptiveGlass(level: selected == cat ? 0.9 : level,
-                                           in: AnyShape(Capsule()), interactive: true)
-                            .foregroundStyle(selected == cat ? Color.primary : .secondary)
-                        }
-                    }
-                    .padding(.horizontal)
-                }
-
-                // Hero card
-                if let hero = items.first {
-                    Button { route = hero } label: {
-                        ZStack(alignment: .bottomLeading) {
-                            Image(hero.cover).resizable().scaledToFill()
-                                .frame(height: 210).clipped()
-                            LinearGradient(colors: [.clear, .black.opacity(0.85)],
-                                           startPoint: .center, endPoint: .bottom)
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(hero.heat ?? "热播推荐")
-                                    .font(.caption2.bold())
-                                    .padding(.horizontal, 9).padding(.vertical, 4)
-                                    .adaptiveGlass(level: level, in: AnyShape(Capsule()))
-                                Text(hero.title).font(.title.bold())
-                                Text("\(hero.category) · \(hero.views ?? "")次播放 · 全\(hero.episodes)集")
-                                    .font(.caption).foregroundStyle(.white.opacity(0.8))
-                            }
-                            .padding(18)
-                        }
-                        .frame(height: 210)
-                        .clipShape(RoundedRectangle(cornerRadius: GlassTokens.cornerLarge))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal)
-                }
-
-                // Poster rail
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("正在热播").font(.headline).padding(.horizontal)
+                if !categories.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 12) {
-                            ForEach(Array(items.enumerated()), id: \.element.key) { idx, drama in
-                                PosterCard(drama: drama, rank: idx + 1, level: level) {
-                                    route = drama
+                        HStack(spacing: 9) {
+                            ForEach(categories, id: \.self) { cat in
+                                Button {
+                                    selected = cat
+                                    Task { await loadItems() }
+                                } label: {
+                                    Text(cat).font(.subheadline.weight(.semibold))
+                                        .padding(.horizontal, 17).padding(.vertical, 8)
                                 }
+                                .adaptiveGlass(level: selected == cat ? 0.9 : level,
+                                               in: AnyShape(Capsule()), interactive: true)
+                                .foregroundStyle(selected == cat ? Color.primary : .secondary)
                             }
-                        }
-                        .padding(.horizontal)
+                        }.padding(.horizontal)
                     }
                 }
 
-                // Grid
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("为你推荐").font(.headline).padding(.horizontal)
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
-                        ForEach(items.dropFirst(2), id: \.key) { drama in
-                            PosterCard(drama: drama, rank: nil, level: level) { route = drama }
-                        }
+                if loading {
+                    HStack { Spacer(); ProgressView(); Spacer() }.padding(.top, 40)
+                } else if items.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "film.stack").font(.system(size: 44)).foregroundStyle(.tertiary)
+                        Text("当前站源没有内容").font(.subheadline).foregroundStyle(.secondary)
+                        Text("到「我的 › 站源模块」安装或切换站源")
+                            .font(.caption).foregroundStyle(.tertiary)
+                    }.frame(maxWidth: .infinity).padding(.top, 50)
+                } else {
+                    // Hero card
+                    if let hero = items.first {
+                        Button { route = hero } label: {
+                            ZStack(alignment: .bottomLeading) {
+                                AsyncCover(cover: hero.cover, level: level)
+                                    .frame(height: 210).clipped()
+                                LinearGradient(colors: [.clear, .black.opacity(0.85)],
+                                               startPoint: .center, endPoint: .bottom)
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(hero.heat ?? "热播推荐")
+                                        .font(.caption2.bold()).padding(.horizontal, 9).padding(.vertical, 4)
+                                        .adaptiveGlass(level: level, in: AnyShape(Capsule()))
+                                    Text(hero.title).font(.title.bold())
+                                    Text("\(hero.category) · \(hero.views ?? "")次播放 · 全\(hero.episodes)集")
+                                        .font(.caption).foregroundStyle(.white.opacity(0.8))
+                                }.padding(18)
+                            }
+                            .frame(height: 210)
+                            .clipShape(RoundedRectangle(cornerRadius: GlassTokens.cornerLarge))
+                        }.buttonStyle(.plain).padding(.horizontal)
                     }
-                    .padding(.horizontal)
+
+                    // Grid
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
+                        ForEach(items) { drama in
+                            PosterCard(drama: drama, level: level) { route = drama }
+                        }
+                    }.padding(.horizontal)
                 }
-            }
-            .padding(.top, 8)
+            }.padding(.top, 8)
         }
+        .refreshable { await loadItems() }
         .navigationDestination(item: $route) { drama in
-            DetailView(drama: drama)
+            DetailView(drama: drama.asDrama)
         }
-        .task { await load() }
+        .navigationDestination(isPresented: $showSearch) {
+            SearchView(source: sourceID)
+        }
+        .task {
+            await reloadCategories()
+        }
+        .onChange(of: sourceID) { _ in Task { await reloadCategories() } }
     }
 
-    func load() async {
+    func reloadCategories() async {
+        guard !sourceID.isEmpty else { return }
+        do {
+            let list = try await Repository.shared.categories(source: sourceID)
+            categories = list.isEmpty ? ["推荐"] : list
+            selected = categories.first ?? "推荐"
+            await loadItems()
+        } catch {
+            categories = ["推荐"]
+            selected = "推荐"
+            await loadItems()
+        }
+    }
+
+    func loadItems() async {
+        guard !sourceID.isEmpty else { return }
         loading = true
         defer { loading = false }
-        // Real data comes from the Go core once a station module is installed.
-        // The bundled example module only returns synthetic rows; keep demo
-        // content when the source returns nothing usable.
         do {
-            let result = try await Repository.shared.catalog(source: source, page: 1, category: selected)
-            if !result.items.isEmpty {
-                items = result.items
-                showDemoBanner = false
-            }
+            let cat = (selected == "推荐" || selected.isEmpty) ? nil : selected
+            let data = try await Repository.shared.catalogRaw(source: sourceID, page: 1, category: cat)
+            let result = RemoteCatalog(data)
+            items = result.items
+            warning = result.warning
         } catch {
-            // Keep demo content visible.
+            warning = "加载失败：\(error.localizedDescription)"
         }
     }
 }
 
 struct PosterCard: View {
-    let drama: Drama
-    let rank: Int?
+    let drama: RemoteDrama
     let level: Double
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 6) {
-                ZStack(alignment: .topLeading) {
-                    Image(drama.cover).resizable().scaledToFill()
-                        .frame(width: 112, height: 158).clipped()
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
-                    if let rank {
-                        Text("\(rank)").font(.caption.bold())
-                            .shadow(radius: 2).padding(6).foregroundStyle(.white)
-                    }
-                }
+                AsyncCover(cover: drama.cover, level: level)
+                    .frame(width: 112, height: 158).clipped()
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
                 Text(drama.title).font(.caption.weight(.semibold))
                     .lineLimit(1).frame(width: 112, alignment: .leading)
                 Text("\(drama.episodes)集 · \(drama.category)")
                     .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }
-        }
-        .buttonStyle(.plain)
+        }.buttonStyle(.plain)
     }
 }
